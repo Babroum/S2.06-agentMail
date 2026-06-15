@@ -14,12 +14,20 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.graphics.shapes import Drawing, Rect, String, Line
 from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
 
 # =========================================================================
 # 1. CONFIGURATION ET CONNEXION AUX APIS
 # =========================================================================
-GROQ_API_KEY = ""  # <--- METS TA CLÉ GROQ ICI
-ID_DOSSIER_DRIVE = ""  # <--- METS L'ID DU DOSSIER DRIVE ICI
+
+
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # <--- METS TA CLÉ GROQ ICI
+ID_DOSSIER_DRIVE = os.environ.get("ID_DOSSIER_DRIVE") # <--- METS L'ID DU DOSSIER DRIVE ICI
 
 # Initialisation du client Groq
 client = Groq(api_key=GROQ_API_KEY)
