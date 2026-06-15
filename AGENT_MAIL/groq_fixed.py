@@ -5,11 +5,12 @@ from email.mime.multipart import MIMEMultipart
 from groq import Groq
 import re
 import requests
-import os
+import os 
 from dotenv import load_dotenv
 
-# Charger variables d'environnement depuis .env si présent
 load_dotenv()
+
+# Charger variables d'environnement depuis .env si présent
 
 # --- Config ---
 
@@ -23,7 +24,7 @@ FEEDS_RSS = [
 ]
 
 # APIs de news (gratuit jusqu'à limites)
-NEWSAPI_KEY = "3b9e8e7c4f3d4c5a6b7e8f9a0b1c2d3e"  # Gratuit, limité à 100 req/jour
+NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY") # Gratuit, limité à 100 req/jour
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
 
 # Bing News API (alternative, génère RSS dynamiquement)
@@ -88,8 +89,8 @@ def get_feeds_from_rss():
             print(f"⚠️  Erreur en parsant {nom}: {e}")
     return articles_par_sujet
 
-EMAIL_EXPEDITEUR = "kriegelgael@gmail.com"
-EMAIL_MOT_DE_PASSE = "wpuv uznp gogd ylnn"
+EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR")  # Récupéré depuis .env
+EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE")  # Récupéré depuis .env
 DESTINATAIRES = [
     "kriegelgael@gmail.com",
     "frtombunce@gmail.com"
@@ -109,15 +110,15 @@ MOTS_CLES = [
     "étudiant", "professeur", "chercheur", "recrutement", "entreprise",
 ]
 
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 # Override depuis .env si disponible
 
-EMAIL_EXPEDITEUR = os.getenv("EMAIL_EXPEDITEUR", EMAIL_EXPEDITEUR)
-EMAIL_MOT_DE_PASSE = os.getenv("EMAIL_MOT_DE_PASSE", EMAIL_MOT_DE_PASSE)
+EMAIL_EXPEDITEUR = os.getenv("EMAIL_EXPEDITEUR", "")
+EMAIL_MOT_DE_PASSE = os.getenv("EMAIL_MOT_DE_PASSE", "")
 DESTINATAIRES = [e.strip() for e in os.getenv("DESTINATAIRES", ",".join(DESTINATAIRES)).split(",") if e.strip()]
-NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", GROQ_API_KEY)
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 
 class SimpleLogger:
