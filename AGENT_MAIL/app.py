@@ -35,7 +35,12 @@ def index():
         global bg_thread, bg_stop_event
 
         def single_run():
-            run_watch(sender, password, recipients, groq_api_key=groq_key, newsapi_key=newsapi_key, logger=app_logger)
+            app_logger.info("Lancement d'une tâche unique en background (thread)")
+            try:
+                run_watch(sender, password, recipients, groq_api_key=groq_key, newsapi_key=newsapi_key, logger=app_logger)
+                app_logger.info("Tâche unique terminée")
+            except Exception as e:
+                app_logger.error(f"Exception dans single_run: {e}")
 
         def repeating_run(stop_event):
             # remove any existing stop flag when starting
