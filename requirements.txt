@@ -1,0 +1,5 @@
+Flask>=2.0
+feedparser
+requests
+groq
+python-dotenv

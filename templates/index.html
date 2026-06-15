@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Veille - Configuration</title>
+    <style>
+      body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px}
+      label{display:block;margin-top:12px}
+      input,textarea{width:100%;padding:8px;margin-top:4px}
+      button{margin-top:12px;padding:10px 16px}
+    </style>
+  </head>
+  <body>
+    <h1>Veille - Configuration</h1>
+    <form method="post">
+      <label>Expéditeur (email)
+        <input name="sender" type="email" required value="{{ sender|default('') }}" />
+      </label>
+      <label>Mot de passe (ou app-password)
+        <input name="password" type="password" required value="{{ password|default('') }}" />
+      </label>
+      <label>Destinataires (séparés par des virgules)
+        <textarea name="recipients" rows="2"></textarea>
+      </label>
+      <label>Clé Groq
+        <input name="groq_key" type="text" value="{{ groq_key|default('') }}" />
+      </label>
+      <label>Clé NewsAPI
+        <input name="newsapi_key" type="text" value="{{ newsapi_key|default('') }}" />
+      </label>
+      <label>Délai entre envois individuels (secondes)
+        <input name="delay" type="number" min="0" step="1" value="{{ delay|default('0') }}" />
+      </label>
+      <label>Intervalle entre exécutions répétées (secondes, 0 = une seule exécution)
+        <input name="interval" type="number" min="0" step="1" value="{{ interval|default('0') }}" />
+      </label>
+      <button type="submit">Lancer la veille (background)</button>
+    </form>
+    <p><a href="/logs">Voir les logs</a> · <a href="/stop">Arrêter la tâche</a></p>
+  </body>
+</html>
