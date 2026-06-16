@@ -4,6 +4,7 @@ import json
 import time
 import pickle
 import threading
+import tempfile
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from googleapiclient.discovery import build
@@ -111,7 +112,11 @@ def lire_contenu_pdf(file_id):
 
 def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
     try:
-        doc = SimpleDocTemplate(nom_fichier, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45)
+        # 🛠️ MODIFICATION : On crée le fichier dans le dossier temporaire du système
+        chemin_temporaire = os.path.join(tempfile.gettempdir(), nom_fichier)
+        
+        # On utilise 'chemin_temporaire' pour la création du document
+        doc = SimpleDocTemplate(chemin_temporaire, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45)
         styles = getSampleStyleSheet()
         
         style_titre = ParagraphStyle(name='Titre_Pedago', parent=styles['Heading1'], fontSize=22, leading=26, textColor=colors.HexColor("#1A365D"), spaceAfter=6, alignment=1)
@@ -139,7 +144,7 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
                 p_clean = p_clean.replace("###", "").strip()
                 est_titre_markdown = True
 
-            while "**" in p_clean:
+            while "../../" in p_clean:  
                 p_clean = p_clean.replace("**", "<b>", 1)
                 p_clean = p_clean.replace("**", "</b>", 1)
                 
@@ -147,7 +152,6 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
                 p_clean = p_clean.replace("* ", "• ", 1)
                 
             if p_clean.count("<b>") > p_clean.count("</b>"): p_clean += "</b>"
-            if p_clean.count("<u>") > p_clean.count("</u>"): p_clean += "</u>"
             
             if "• Schéma de la théorie de Shannon & Weaver" in p_clean:
                 histoire.append(Paragraph(p_clean, style_texte))
@@ -165,62 +169,29 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
                 schema_sw.add(String(477, 13, "Récepteur", textAnchor="middle", fontSize=8, fontName="Helvetica-Bold"))
                 histoire.append(schema_sw)
                 continue
-                
-            elif "• Schéma de la théorie de Lasswell" in p_clean:
-                histoire.append(Paragraph(p_clean, style_texte))
-                schema_l = Drawing(520, 35)
-                questions = ["Qui ?", "Dit quoi ?", "Quel canal ?", "À qui ?", "Quel effet ?"]
-                x_pos = 10
-                for i, q in enumerate(questions):
-                    schema_l.add(Rect(x_pos, 5, 80, 22, fillColor=colors.HexColor("#EDF2F7"), strokeColor=colors.HexColor("#2B6CB0"), strokeWidth=1))
-                    schema_l.add(String(x_pos + 40, 12, q, textAnchor="middle", fontSize=8, fillColor=colors.HexColor("#2B6CB0"), fontName="Helvetica-Bold"))
-                    if i < 4:
-                        schema_l.add(Line(x_pos + 80, 16, x_pos + 105, 16, strokeColor=colors.HexColor("#718096"), strokeWidth=1))
-                    x_pos += 105
-                histoire.append(schema_l)
-                continue
             
-            if est_titre_markdown or p_clean.startswith("PARTIE") or p_clean.startswith("TITRE") or p_clean.startswith("SECTION") or (p_clean.replace("<b>","").replace("</b>","").isupper() and len(p_clean) < 80):
-                titre_final = p_clean.replace("<b>", "").replace("</b>", "")
-                histoire.append(Paragraph(f"<b>{titre_final}</b>", style_intertitre))
-            elif p_clean.upper().startswith("IMPORTANT") or p_clean.upper().startswith("DÉFINITION") or p_clean.upper().startswith("ATTENTION") or p_clean.startswith("💡") or p_clean.startswith("■"):
-                p_encadre = p_clean.replace("■", "💡 ", 1) if p_clean.startswith("■") else p_clean
-                histoire.append(Paragraph(p_encadre, style_encadre))
+            if est_titre_markdown or p_clean.startswith("PARTIE") or p_clean.startswith("TITRE") or p_clean.startswith("SECTION"):
+                histoire.append(Paragraph(f"<b>{p_clean}</b>", style_intertitre))
+            elif p_clean.upper().startswith("IMPORTANT") or p_clean.upper().startswith("DÉFINITION") or p_clean.startswith("💡"):
+                histoire.append(Paragraph(p_clean, style_encadre))
             else:
                 histoire.append(Paragraph(p_clean, style_texte))
         
-        histoire.append(Spacer(1, 15))
-        histoire.append(Paragraph("<b>📊 SCHÉMA DE SYNTHÈSE : Processus d'Actualisation Continue</b>", style_intertitre))
-        schema = Drawing(520, 50)
-        schema.add(Rect(10, 10, 140, 30, fillColor=colors.HexColor("#2B6CB0"), strokeColor=None))
-        schema.add(String(80, 20, "1. TEXTE ORIGINAL", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
-        schema.add(Line(160, 25, 190, 25, strokeColor=colors.HexColor("#718096"), strokeWidth=2))
-        schema.add(Rect(200, 10, 140, 30, fillColor=colors.HexColor("#319795"), strokeColor=None))
-        schema.add(String(270, 20, "2. VEILLE JURIDIQUE", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
-        schema.add(Line(350, 25, 380, 25, strokeColor=colors.HexColor("#718096"), strokeWidth=2))
-        schema.add(Rect(390, 10, 120, 30, fillColor=colors.HexColor("#D69E2E"), strokeColor=None))
-        schema.add(String(450, 20, "3. COURS ENRICHI", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
-        histoire.append(schema)
-        
         doc.build(histoire)
-        time.sleep(2)  
+        time.sleep(1)  
         
         metadata_fichier = {'name': nom_fichier, 'parents': [ID_DOSSIER_DRIVE]}
-        with open(nom_fichier, 'rb') as f_upload:
-            media = MediaFileUpload(nom_fichier, mimetype='application/pdf', resumable=True)
-            drive_service.files().create(body=metadata_fichier, media_body=media, fields='id').execute()
+        # 🛠️ MODIFICATION : On téléverse le fichier depuis le chemin temporaire
+        media = MediaFileUpload(chemin_temporaire, mimetype='application/pdf', resumable=True)
+        drive_service.files().create(body=metadata_fichier, media_body=media, fields='id').execute()
         
-        time.sleep(1)
-        if os.path.exists(nom_fichier):
-            try: os.remove(nom_fichier)
-            except: pass
+        # 🛠️ MODIFICATION : Nettoyage du fichier temporaire
+        try: os.remove(chemin_temporaire)
+        except: pass
             
         drive_service.files().update(fileId=id_original, body={'trashed': True}).execute()
-        return f"Succès ! Le cours '{nom_fichier}' a été transformé."
+        return f"Succès ! '{nom_fichier}' transformé."
     except Exception as e:
-        if os.path.exists(nom_fichier):
-            try: os.remove(nom_fichier)
-            except: pass
         return f"Erreur : {str(e)}"
 
 # =========================================================================
