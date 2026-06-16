@@ -349,6 +349,59 @@ def _extract_first_url(value) -> str:
 
     return ""
 
+def _extract_emails(value) -> list[str]:
+    email_regex = re.compile(r"[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+")
+
+    def from_str(s: str) -> list[str]:
+        found = []
+        for m in email_regex.finditer(s):
+            raw = m.group(0).strip()
+            raw = raw.strip("`'\"()[]{}<>.,;:")
+            if raw and raw not in found:
+                found.append(raw)
+        return found
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return from_str(value)
+
+    queue = [value]
+    visited_ids = set()
+    steps = 0
+    found: list[str] = []
+    seen = set()
+
+    while queue and steps < 400:
+        current = queue.pop(0)
+        steps += 1
+        obj_id = id(current)
+        if obj_id in visited_ids:
+            continue
+        visited_ids.add(obj_id)
+
+        if isinstance(current, str):
+            for e in from_str(current):
+                e_l = e.lower()
+                if e_l not in seen:
+                    seen.add(e_l)
+                    found.append(e)
+            continue
+
+        if isinstance(current, dict):
+            for v in current.values():
+                if isinstance(v, (dict, list, str)):
+                    queue.append(v)
+            continue
+
+        if isinstance(current, list):
+            for v in current:
+                if isinstance(v, (dict, list, str)):
+                    queue.append(v)
+            continue
+
+    return found
+
 
 def _fetch_university_rows(country: str, topic: str = "") -> list[dict[str, str]]:
     country_en = normalize_country(country)
@@ -562,7 +615,8 @@ def find_international_contacts(country : str, topic : str = "", universities : 
                     f'("international relations" OR "international office" OR erasmus) '
                     f'(email OR contact)'
                 )
-                search_result = client.search(depth="standard", query=query, output_type="searchResults")
+                depth = "deep" if university_filters or max_universities <= 2 else "standard"
+                search_result = client.search(depth=depth, query=query, output_type="searchResults")
                 source_url = _extract_first_url(search_result) or (f"https://{domain}/" if domain else "")
                 parsed = extractor(
                     "Extrait jusqu'à 3 contacts/emails de relations internationales depuis ces résultats. "
@@ -597,6 +651,27 @@ def find_international_contacts(country : str, topic : str = "", universities : 
                             },
                         )
                     )
+
+                if not candidates_rows:
+                    for email in _extract_emails(search_result)[:12]:
+                        email = (email or "").strip()
+                        if not _is_valid_email(email):
+                            continue
+                        score = _contact_score(email=email, first_name="", last_name="")
+                        candidates_rows.append(
+                            (
+                                score,
+                                {
+                                    "Pays": (country_en or "").strip(),
+                                    "Domaine": (topic or "").strip(),
+                                    "Université": (university_name or "").strip(),
+                                    "Prénom": "",
+                                    "Nom": "",
+                                    "Email": email,
+                                    "Source": source_url,
+                                },
+                            )
+                        )
 
                 candidates_rows.sort(key=lambda x: x[0], reverse=True)
                 added = 0
