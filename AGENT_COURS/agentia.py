@@ -294,8 +294,9 @@ else:
             "4. Rigueur absolue : Préserve intégralement la structure interne (titres, sous-sections, plan détaillé). Ne résume rien.\n"
             "5. Chasse aux anomalies : Convertis les Francs en Euros, supprime les références aux tribunaux d'instance/TGI au profit du Tribunal Judiciaire, intègre les règles modernes du droit des obligations.\n"
             "6. Interdiction : Ne fais absolument aucun ajout ou commentaire au sujet de l'intelligence artificielle ou du monde informatique.\n"
-            "7. Production directe : Rends uniquement le texte formaté de la leçon. Pas de préambule de politesse."
-            "8. Illustration : n'hésite pas a rajouter quelques explications essentielles et reformulation de temps en temps , et a rajouter des illustrations ou encore des schémas d'explications si nécessaire, et si possible de reprendre les images présentent sur les pdf, chaque pdf doit être agréable a regarder."
+            "7. Production directe : Rends uniquement le texte formaté de la leçon. Pas de préambule de politesse.\n"
+            "8. Illustration : n'hésite pas a rajouter quelques explications essentielles et reformulation de temps en temps , et a rajouter des illustrations ou encore des schémas d'explications si nécessaire, et si possible de reprendre les images présentent sur les pdf, chaque pdf doit être agréable a regarder.\n"
+            "9. Illustration 2 : génère des images d'illustration dans les pdfs\n"
         )
         
         try:
