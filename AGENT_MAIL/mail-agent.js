@@ -67,7 +67,25 @@ const logContent             = document.getElementById('logContent');
 const clearLogsBtn           = document.getElementById('clearLogsBtn');
 
 // ==========================================
-// 3. NOTIFICATIONS
+// 3. UTILITAIRE — SAFE JSON
+// ==========================================
+// Évite le crash "JSON.parse unexpected character" quand le serveur
+// renvoie du HTML (page d'erreur Render, proxy 502, etc.)
+async function safeJson(res) {
+    const text = await res.text();
+    try {
+        return JSON.parse(text);
+    } catch (_) {
+        // Extraire le premier message lisible du HTML si possible
+        const match = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)
+                   || text.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const snippet = match ? match[1].replace(/<[^>]+>/g, '').trim().slice(0, 200) : text.slice(0, 200);
+        return { message: `Réponse serveur invalide (non-JSON) : ${snippet}` };
+    }
+}
+
+// ==========================================
+// NOTIFICATIONS
 // ==========================================
 function showNotification(message, type = 'success') {
     const n = document.createElement('div');
@@ -168,8 +186,9 @@ configForm.onsubmit = async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
+        const d = await safeJson(res);
         if (res.ok) { showNotification('Configuration sauvegardée ✓', 'success'); updateStatus(); }
-        else { const d = await res.json(); showNotification(`Erreur : ${d.message}`, 'error'); }
+        else { showNotification(`Erreur : ${d.message}`, 'error'); }
     } catch (e) {
         showNotification('Erreur connexion serveur', 'error');
     }
@@ -191,17 +210,21 @@ testEmailBtn.onclick = async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ senderEmail: senderEmailInput.value, appPassword: appPasswordInput.value })
         });
-        const data = await res.json();
+        const data = await safeJson(res);
         if (res.ok) {
-            testModalBody.innerHTML = `<p style="color:var(--success);">✓ Connexion réussie!</p><p style="font-size:12px;color:#a0a0a0;margin-top:10px;">${data.message}</p>`;
+            testModalBody.innerHTML = `<p style="color:var(--success);">✓ Connexion réussie !</p>
+                <p style="font-size:12px;color:#a0a0a0;margin-top:10px;">${data.message || ''}</p>`;
             showNotification('Test réussi ✓', 'success');
         } else {
-            testModalBody.innerHTML = `<p style="color:var(--error);">✗ ${data.message}</p>`;
-            showNotification('Test échoué', 'error');
+            testModalBody.innerHTML = `<p style="color:var(--error);">✗ Échec (HTTP ${res.status})</p>
+                <p style="font-size:12px;color:#ef9a9a;margin-top:8px;word-break:break-word;">${data.message || 'Erreur inconnue'}</p>
+                <p style="font-size:11px;color:#8a8a8a;margin-top:8px;">💡 Vérifiez que l'email est bien @gmail.com et que le mot de passe d'application (16 car.) est correct.</p>`;
+            showNotification('Test échoué — voir détails dans la fenêtre', 'error');
         }
     } catch (e) {
-        testModalBody.innerHTML = `<p style="color:var(--error);">✗ Erreur réseau : ${e.message}</p>`;
-        showNotification('Erreur réseau', 'error');
+        testModalBody.innerHTML = `<p style="color:var(--error);">✗ Impossible de joindre le serveur</p>
+            <p style="font-size:12px;color:#ef9a9a;margin-top:8px;">${e.message}</p>`;
+        showNotification('Erreur réseau — serveur injoignable ?', 'error');
     }
 };
 
@@ -241,7 +264,7 @@ sendNowBtn.onclick = async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(currentConfig)
         });
-        const data = await res.json();
+        const data = await safeJson(res);
         if (res.ok) {
             addHistoryItem('Envoi lancé', 'success');
         } else {

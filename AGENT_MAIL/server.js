@@ -182,19 +182,41 @@ app.post('/api/config', (req, res) => {
 
 // 2. Test de connexion email (nodemailer SMTP verify)
 app.post('/api/test-email', async (req, res) => {
+    // Garantir JSON même en cas d'erreur non catchée
+    res.setHeader('Content-Type', 'application/json');
     try {
-        const { senderEmail, appPassword } = req.body;
+        const { senderEmail, appPassword } = req.body || {};
         if (!senderEmail || !appPassword) {
             return res.status(400).json({ message: 'Email et mot de passe requis' });
         }
+        // Nettoyer le mot de passe (Google l'affiche avec espaces mais SMTP les rejette)
+        const cleanPass = appPassword.replace(/\s/g, '');
+        if (cleanPass.length === 0) {
+            return res.status(400).json({ message: 'Mot de passe vide.' });
+        }
+        if (cleanPass.length !== 16) {
+            return res.status(400).json({
+                message: `Mot de passe d'application : ${cleanPass.length} caractères détectés (attendu 16). Copiez les 16 caractères depuis myaccount.google.com/apppasswords.`
+            });
+        }
         const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: senderEmail, pass: appPassword }
+            host: 'smtp.gmail.com',
+            port: 465,
+            secure: true,
+            auth: { user: senderEmail, pass: cleanPass }
         });
         await transporter.verify();
-        res.json({ message: 'Connexion SMTP vérifiée avec succès ✓' });
+        res.json({ message: `Connexion SMTP vérifiée pour ${senderEmail} ✓` });
     } catch (e) {
-        res.status(401).json({ message: 'Erreur authentification Gmail : ' + (e.message || 'Vérifiez vos identifiants') });
+        const msg = e.message || '';
+        let hint = msg;
+        if (msg.includes('535') || msg.includes('Username and Password') || msg.includes('Invalid login'))
+            hint = `Identifiants refusés par Gmail (535). Causes possibles :\n• Le mot de passe d'application est incorrect\n• La validation en 2 étapes n'est pas activée sur votre compte\n• Le mot de passe d'application a été révoqué\nAllez sur myaccount.google.com/apppasswords pour en créer un nouveau.`;
+        else if (msg.includes('ECONNREFUSED') || msg.includes('ETIMEDOUT') || msg.includes('ENOTFOUND'))
+            hint = 'Impossible de joindre smtp.gmail.com:465. Le port sortant est peut-être bloqué sur Render (plan gratuit).';
+        else if (msg.includes('CERT') || msg.includes('SSL') || msg.includes('TLS'))
+            hint = 'Erreur SSL/TLS lors de la connexion SMTP : ' + msg;
+        res.status(401).json({ message: hint });
     }
 });
 
@@ -245,12 +267,22 @@ function setupScheduler(config) {
     const cronExpr = `${minutes} ${hours} * * *`;
 
     cronJob = cron.schedule(cronExpr, () => {
-        pushLog(`⏰ Envoi automatique déclenché (${config.sendTime})`);
+        pushLog(`⏰ Envoi automatique déclenché (${config.sendTime} UTC)`);
         runPythonAgent(config).catch(e => pushLog(`❌ Envoi auto échoué : ${e.message}`, 'error'));
     });
 
-    pushLog(`✅ Scheduler activé : ${cronExpr} (${config.sendTime})`);
+    const nowUTC = new Date().toISOString().slice(11,16);
+    pushLog(`✅ Scheduler activé : ${config.sendTime} UTC (heure serveur : ${nowUTC} UTC). ⚠️  Render = UTC, France = UTC+2 en été, donc entrez 06:00 pour recevoir à 08:00 heure locale.`);
 }
+
+// ==========================================
+// MIDDLEWARE D'ERREUR GLOBAL — toujours JSON
+// ==========================================
+app.use((err, req, res, next) => {
+    console.error('Express error:', err);
+    res.setHeader('Content-Type', 'application/json');
+    res.status(500).json({ message: err.message || 'Erreur serveur interne' });
+});
 
 // ==========================================
 // SERVEUR STATIQUE
