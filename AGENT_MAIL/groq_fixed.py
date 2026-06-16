@@ -40,7 +40,6 @@ EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
 NEWSAPI_KEY        = os.environ.get("NEWSAPI_KEY", "")
-DISABLE_EMAIL = os.environ.get("DISABLE_EMAIL", "false").lower() == "true"
 NEWSAPI_URL        = "https://newsapi.org/v2/everything"
 
 _dest_env     = os.environ.get("DESTINATAIRES", "")
@@ -369,24 +368,9 @@ def generate_resume(article, llm, logger):
 # ENVOI EMAIL
 # ==========================================
 def send_email(resultats, sender, password, recipients, llm, logger):
-    if resultats:
-        if DISABLE_EMAIL:
-            logger.info("🚫 Mode Simulation actif : Envoi d'e-mail désactivé.")
-            logger.info("📝 Les articles ont été sélectionnés et résumés par l'IA avec succès !")
-            logger.info("✅ Veille terminée (Simulation).")
-        else:
-            send_email(
-                resultats,
-                sender=EMAIL_EXPEDITEUR,
-                password=EMAIL_MOT_DE_PASSE,
-                recipients=DESTINATAIRES,
-                llm=llm,
-                logger=logger
-            )
-            logger.info("✅ Veille terminée et envoyée avec succès")
-    else:
-        logger.error("⚠️  Aucun article sélectionné — email non envoyé")
-        sys.exit(1)
+    if not resultats:
+        logger.info("⚠️  Pas d'articles à envoyer")
+        return
 
     clean_pass = password.replace(" ", "") if password else ""
 
