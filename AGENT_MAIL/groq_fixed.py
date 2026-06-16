@@ -1,111 +1,56 @@
 import feedparser
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from groq import Groq
+import sys
+import os
 import re
 import requests
-import os 
-from dotenv import load_dotenv
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-load_dotenv()
+# dotenv optionnel
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# Charger variables d'environnement depuis .env si présent
+# ==========================================
+# IMPORTS LLM — Gemini (priorité) + Groq (fallback)
+# ==========================================
+GEMINI_OK = False
+GROQ_OK   = False
 
-# --- Config ---
+try:
+    import google.generativeai as genai
+    GEMINI_OK = True
+except ImportError:
+    pass  # géré dans run_watch
 
-# Sources RSS de base (fallback)
+try:
+    from groq import Groq
+    GROQ_OK = True
+except ImportError:
+    pass  # géré dans run_watch
+
+# ==========================================
+# CONFIG — tout depuis les variables d'env
+# ==========================================
+EMAIL_EXPEDITEUR   = os.environ.get("EMAIL_EXPEDITEUR", "")
+EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
+GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY       = os.environ.get("GROQ_API_KEY", "")
+NEWSAPI_KEY        = os.environ.get("NEWSAPI_KEY", "")
+NEWSAPI_URL        = "https://newsapi.org/v2/everything"
+
+_dest_env     = os.environ.get("DESTINATAIRES", "")
+DESTINATAIRES = [e.strip() for e in _dest_env.split(",") if e.strip()] or ["kriegelgael@gmail.com"]
+
 FEEDS_RSS = [
-    ("EducPros",              "https://www.letudiant.fr/educpros/rss.xml"),
-    ("Le Monde Éco",          "https://www.lemonde.fr/economie/rss_full.xml"),
-    ("Les Échos",             "https://www.lesechos.fr/rss/rss_une.xml"),
-    ("The Conversation FR",   "https://theconversation.com/fr/articles.atom"),
-    ("Cadremploi Actus",      "https://www.cadremploi.fr/rss/actualites.xml"),
-]
-
-# APIs de news (gratuit jusqu'à limites)
-NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY") # Gratuit, limité à 100 req/jour
-NEWSAPI_URL = "https://newsapi.org/v2/everything"
-
-# Bing News API (alternative, génère RSS dynamiquement)
-def get_feeds_from_newsapi(logger=None):
-    """Récupère les articles via NewsAPI pour les mots-clés"""
-    import requests
-    feeds = []
-    
-    queries = [
-        "économie France",
-        "gestion entreprise", 
-        "master MBA France",
-        "éducation supérieure",
-        "finance business",
-        "startups entrepreneuriat",
-        "transformation digitale",
-        "management RH",
-    ]
-    
-    for query in queries:
-        try:
-            response = requests.get(NEWSAPI_URL, params={
-                "q": query,
-                "language": "fr",
-                "sortBy": "publishedAt",
-                "apiKey": NEWSAPI_KEY,
-                "pageSize": 5
-            }, timeout=5)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("articles"):
-                    feeds.append((f"NewsAPI: {query}", data.get("articles", [])))
-                    if logger:
-                        logger.info(f"✅ {len(data.get('articles', []))} articles trouvés pour '{query}'")
-                    else:
-                        print(f"✅ {len(data.get('articles', []))} articles trouvés pour '{query}'")
-        except Exception as e:
-            if logger:
-                logger.error(f"⚠️  Erreur NewsAPI pour '{query}': {e}")
-            else:
-                print(f"⚠️  Erreur NewsAPI pour '{query}': {e}")
-    
-    return feeds
-
-
-def get_feeds_from_rss(logger=None):
-    """Récupère les flux RSS"""
-    articles_par_sujet = []
-    for nom, url in FEEDS_RSS:
-        try:
-            feed = feedparser.parse(url)
-            articles = []
-            for entry in feed.entries:
-                texte = (entry.title + entry.get("summary", "")).lower()
-                if any(mot in texte for mot in MOTS_CLES):
-                    articles.append({
-                        "title":   entry.title,
-                        "link":    entry.link,
-                        "summary": entry.get("summary", "")
-                    })
-                if len(articles) == 5:
-                    break
-            if articles:
-                articles_par_sujet.append((nom, articles))
-                if logger:
-                    logger.info(f"✅ {len(articles)} articles trouvés dans {nom}")
-                else:
-                    print(f"✅ {len(articles)} articles trouvés dans {nom}")
-        except Exception as e:
-            if logger:
-                logger.error(f"⚠️  Erreur en parsant {nom}: {e}")
-            else:
-                print(f"⚠️  Erreur en parsant {nom}: {e}")
-    return articles_par_sujet
-
-EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR")  # Récupéré depuis .env
-EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE")  # Récupéré depuis .env
-DESTINATAIRES = [
-    "kriegelgael@gmail.com",
-    "frtombunce@gmail.com"
+    ("EducPros",            "https://www.letudiant.fr/educpros/rss.xml"),
+    ("Le Monde Éco",        "https://www.lemonde.fr/economie/rss_full.xml"),
+    ("Les Échos",           "https://www.lesechos.fr/rss/rss_une.xml"),
+    ("The Conversation FR", "https://theconversation.com/fr/articles.atom"),
+    ("Cadremploi Actus",    "https://www.cadremploi.fr/rss/actualites.xml"),
 ]
 
 MOTS_CLES = [
@@ -122,24 +67,13 @@ MOTS_CLES = [
     "étudiant", "professeur", "chercheur", "recrutement", "entreprise",
 ]
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Override depuis .env si disponible
-
-EMAIL_EXPEDITEUR = os.getenv("EMAIL_EXPEDITEUR", "")
-EMAIL_MOT_DE_PASSE = os.getenv("EMAIL_MOT_DE_PASSE", "")
-DESTINATAIRES = [e.strip() for e in os.getenv("DESTINATAIRES", ",".join(DESTINATAIRES)).split(",") if e.strip()]
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-
-
+# ==========================================
+# LOGGER SIMPLE
+# ==========================================
 class SimpleLogger:
-    """Logger en mémoire et optionnellement persistant dans un fichier.
-
-    Usage: `SimpleLogger(file_path='veilles.log')` pour activer la persistance.
-    """
     def __init__(self, file_path=None):
-        self.lines = []
+        self.lines     = []
         self.file_path = file_path
 
     def _write_file(self, line):
@@ -149,320 +83,400 @@ class SimpleLogger:
             with open(self.file_path, 'a', encoding='utf-8') as f:
                 f.write(line + '\n')
         except Exception:
-            # ne pas planter l'application si l'écriture échoue
             pass
 
     def info(self, msg):
         text = str(msg)
-        print(text)
+        print(text, flush=True)
         self.lines.append(text)
         from datetime import datetime
-        ts = datetime.utcnow().isoformat()
-        self._write_file(f"[INFO] {ts} {text}")
+        self._write_file(f"[INFO] {datetime.utcnow().isoformat()} {text}")
 
     def error(self, msg):
         text = str(msg)
-        print(text)
+        print(text, flush=True, file=sys.stderr)
         self.lines.append(text)
         from datetime import datetime
-        ts = datetime.utcnow().isoformat()
-        self._write_file(f"[ERROR] {ts} {text}")
+        self._write_file(f"[ERROR] {datetime.utcnow().isoformat()} {text}")
 
     def get_lines(self, max_lines=200):
-        # Si on a un fichier, retourner les dernières lignes du fichier
         if self.file_path:
             try:
                 with open(self.file_path, 'r', encoding='utf-8') as f:
-                    all_lines = [l.rstrip('\n') for l in f.readlines()]
-                    return all_lines[-max_lines:]
+                    return [l.rstrip('\n') for l in f.readlines()][-max_lines:]
             except Exception:
                 pass
         return self.lines[-max_lines:]
 
-# --- Récupération et filtrage ---
-def fetch_articles(logger=None):
-    """Combine NewsAPI + RSS"""
-    if logger:
-        logger.info("🔍 Récupération des articles...")
-    else:
-        print("\n🔍 Récupération des articles...\n")
+
+# ==========================================
+# COUCHE LLM UNIFIÉE : Gemini → Groq fallback
+# ==========================================
+class LLMClient:
+    """
+    Appelle Gemini en priorité.
+    Si Gemini échoue (quota, erreur réseau, indisponible),
+    bascule automatiquement sur Groq pour cet appel.
+    """
+
+    GEMINI_MODEL = "gemini-1.5-flash"
+    GROQ_MODEL   = "llama-3.3-70b-versatile"
+
+    def __init__(self, gemini_key, groq_key, logger):
+        self.logger     = logger
+        self.groq_key   = groq_key
+        self._groq      = None
+
+        # Initialiser Gemini
+        self._gemini_ok = False
+        if gemini_key and GEMINI_OK:
+            try:
+                genai.configure(api_key=gemini_key)
+                self._gemini_model = genai.GenerativeModel(self.GEMINI_MODEL)
+                self._gemini_ok    = True
+                logger.info(f"✅ LLM principal : Gemini ({self.GEMINI_MODEL})")
+            except Exception as e:
+                logger.error(f"⚠️  Gemini init échouée : {e} — fallback Groq")
+        else:
+            if not gemini_key:
+                logger.info("ℹ️  GEMINI_API_KEY absente — utilisation directe de Groq")
+            elif not GEMINI_OK:
+                logger.error("⚠️  Package 'google-generativeai' non installé — fallback Groq")
+
+        # Initialiser Groq (toujours, pour le fallback)
+        if groq_key and GROQ_OK:
+            try:
+                self._groq = Groq(api_key=groq_key)
+                logger.info(f"✅ LLM fallback : Groq ({self.GROQ_MODEL})")
+            except Exception as e:
+                logger.error(f"⚠️  Groq init échouée : {e}")
+
+        if not self._gemini_ok and not self._groq:
+            logger.error("❌ Aucun LLM disponible (Gemini + Groq tous les deux KO)")
+            sys.exit(1)
+
+    def _call_gemini(self, system_prompt, user_prompt):
+        """Appel Gemini — lève une exception si ça rate."""
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        response    = self._gemini_model.generate_content(full_prompt)
+        return response.text.strip()
+
+    def _call_groq(self, system_prompt, user_prompt, max_tokens=200):
+        """Appel Groq — lève une exception si ça rate."""
+        resp = self._groq.chat.completions.create(
+            model=self.GROQ_MODEL,
+            temperature=0.2,
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ]
+        )
+        return resp.choices[0].message.content.strip()
+
+    def complete(self, system_prompt, user_prompt, max_tokens=200, label="LLM"):
+        """
+        Essaie Gemini, bascule sur Groq si Gemini échoue.
+        Retourne le texte généré ou lève une exception si les deux ratent.
+        """
+        # Tentative Gemini
+        if self._gemini_ok:
+            try:
+                result = self._call_gemini(system_prompt, user_prompt)
+                return result
+            except Exception as e:
+                err_msg = str(e)
+                # Détecter quota / rate-limit / indisponibilité
+                if any(k in err_msg for k in ["429", "quota", "RESOURCE_EXHAUSTED",
+                                               "503", "unavailable", "overloaded"]):
+                    self.logger.error(f"⚠️  [{label}] Gemini quota/indispo : {err_msg[:120]} → fallback Groq")
+                else:
+                    self.logger.error(f"⚠️  [{label}] Gemini erreur : {err_msg[:120]} → fallback Groq")
+
+        # Fallback Groq
+        if self._groq:
+            try:
+                result = self._call_groq(system_prompt, user_prompt, max_tokens)
+                return result
+            except Exception as e:
+                raise RuntimeError(f"Groq aussi en erreur : {e}") from e
+
+        raise RuntimeError("Aucun LLM disponible pour répondre.")
+
+
+# ==========================================
+# RÉCUPÉRATION ARTICLES
+# ==========================================
+def get_feeds_from_newsapi(logger):
+    feeds   = []
+    queries = [
+        "économie France", "gestion entreprise", "master MBA France",
+        "éducation supérieure", "finance business", "startups entrepreneuriat",
+        "transformation digitale", "management RH",
+    ]
+    for query in queries:
+        try:
+            r = requests.get(NEWSAPI_URL, params={
+                "q": query, "language": "fr", "sortBy": "publishedAt",
+                "apiKey": NEWSAPI_KEY, "pageSize": 5
+            }, timeout=10)
+            if r.status_code == 200:
+                data     = r.json()
+                articles = data.get("articles", [])
+                if articles:
+                    feeds.append((f"NewsAPI: {query}", articles))
+                    logger.info(f"✅ {len(articles)} articles pour '{query}'")
+            else:
+                logger.error(f"⚠️  NewsAPI HTTP {r.status_code} pour '{query}': {r.text[:100]}")
+        except Exception as e:
+            logger.error(f"⚠️  Erreur NewsAPI pour '{query}': {e}")
+    return feeds
+
+
+def get_feeds_from_rss(logger):
     articles_par_sujet = []
-    
-    # 1. Essayer NewsAPI en premier (+ rapide, + moderne)
-    if logger:
-        logger.info("📡 NewsAPI en cours...")
-    else:
-        print("📡 NewsAPI en cours...", flush=True)
-    newsapi_feeds = get_feeds_from_newsapi(logger=logger)
-    
-    for nom, articles_list in newsapi_feeds:
-        filtered = []
-        for article in articles_list:
-            texte = (article.get("title", "") + article.get("description", "")).lower()
-            if any(mot in texte for mot in MOTS_CLES):
-                filtered.append({
-                    "title":   article.get("title", ""),
-                    "link":    article.get("url", ""),
-                    "summary": article.get("description", "")
-                })
-        if filtered:
-            articles_par_sujet.append((nom, filtered[:4]))
-    
-    # 2. Complémenter avec RSS (pour la diversité)
-    if logger:
-        logger.info("📰 RSS en cours...")
-    else:
-        print("📰 RSS en cours...", flush=True)
-    rss_feeds = get_feeds_from_rss(logger=logger)
-    articles_par_sujet.extend(rss_feeds)
-    
-    if logger:
-        logger.info(f"\n✅ Total: {sum(len(a) for _, a in articles_par_sujet)} articles collectés\n")
-    else:
-        print(f"\n✅ Total: {sum(len(a) for _, a in articles_par_sujet)} articles collectés\n")
+    for nom, url in FEEDS_RSS:
+        try:
+            feed     = feedparser.parse(url)
+            articles = []
+            for entry in feed.entries:
+                texte = (entry.title + entry.get("summary", "")).lower()
+                if any(mot in texte for mot in MOTS_CLES):
+                    articles.append({
+                        "title":   entry.title,
+                        "link":    entry.link,
+                        "summary": entry.get("summary", "")
+                    })
+                if len(articles) == 5:
+                    break
+            if articles:
+                articles_par_sujet.append((nom, articles))
+                logger.info(f"✅ {len(articles)} articles dans {nom}")
+        except Exception as e:
+            logger.error(f"⚠️  Erreur RSS {nom}: {e}")
     return articles_par_sujet
 
-def summarize_with_groq(articles_par_sujet, logger=None):
-    client = Groq(api_key=GROQ_API_KEY)
 
-    # Aplatir tous les articles
-    tous_les_articles = []
-    for nom, articles in articles_par_sujet:
-        for article in articles:
-            tous_les_articles.append({**article, "source": nom})
+def fetch_articles(logger):
+    logger.info("🔍 Récupération des articles...")
+    articles_par_sujet = []
 
-    if not tous_les_articles:
-        if logger:
-            logger.info("❌ Aucun article trouvé")
-        else:
-            print("❌ Aucun article trouvé")
-        return []
-
-    if logger:
-        logger.info(f"📚 {len(tous_les_articles)} articles à traiter...")
+    if NEWSAPI_KEY:
+        logger.info("📡 NewsAPI en cours...")
+        newsapi_feeds = get_feeds_from_newsapi(logger)
+        for nom, articles_list in newsapi_feeds:
+            filtered = []
+            for a in articles_list:
+                texte = (a.get("title", "") + a.get("description", "")).lower()
+                if any(mot in texte for mot in MOTS_CLES):
+                    filtered.append({
+                        "title":   a.get("title", ""),
+                        "link":    a.get("url", ""),
+                        "summary": a.get("description", "")
+                    })
+            if filtered:
+                articles_par_sujet.append((nom, filtered[:4]))
     else:
-        print(f"📚 {len(tous_les_articles)} articles à traiter...")
+        logger.info("⚠️  Pas de clé NewsAPI — utilisation des flux RSS")
+
+    # Fallback RSS si NewsAPI vide
+    if not articles_par_sujet:
+        logger.info("📰 RSS en cours...")
+        rss = get_feeds_from_rss(logger)
+        articles_par_sujet.extend(rss)
+
+    total = sum(len(a) for _, a in articles_par_sujet)
+    logger.info(f"✅ Total : {total} articles collectés")
+
+    if total == 0:
+        logger.error("❌ Aucun article trouvé (NewsAPI + RSS tous vides)")
+        sys.exit(1)
+
+    return articles_par_sujet
+
+
+# ==========================================
+# SÉLECTION + RÉSUMÉ (via LLMClient)
+# ==========================================
+def select_articles(articles_par_sujet, llm, logger):
+    tous = []
+    for nom, arts in articles_par_sujet:
+        for a in arts:
+            tous.append({**a, "source": nom})
+
+    logger.info(f"📚 {len(tous)} articles à trier...")
 
     content = "\n\n".join([
         f"[{i+1}] ({a['source']}) {a['title']}\n{a['summary'][:200]}"
-        for i, a in enumerate(tous_les_articles)
+        for i, a in enumerate(tous)
     ])
 
+    system = "Tu réponds UNIQUEMENT avec une liste de numéros d'articles séparés par des virgules. Ex: 1,3,5,7"
+    user   = (
+        "Sélectionne les 4 articles les plus importants pour un étudiant en économie-gestion.\n"
+        "Retourne JUSTE les numéros séparés par des virgules, rien d'autre.\n\n"
+        f"Articles:\n{content}"
+    )
+
     try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0,
-            max_tokens=100,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Tu réponds UNIQUEMENT avec une liste de numéros d'articles séparés par des virgules. Ex: 1,3,5,7"
-                },
-                {
-                    "role": "user",
-                    "content": f"""Sélectionne les 4 articles les plus importants pour un étudiant en économie-gestion.
+        raw = llm.complete(system, user, max_tokens=100, label="sélection")
+        logger.info(f"🔍 Sélection brute : '{raw}'")
 
-Retourne JUSTE les numéros séparés par des virgules, rien d'autre.
-
-Articles:
-{content}"""
-                }
-            ]
-        )
-
-        raw = response.choices[0].message.content.strip()
-        if logger:
-            logger.info(f"🔍 Réponse brute de Groq: '{raw}'")
-        else:
-            print(f"🔍 Réponse brute de Groq: '{raw}'")
-
-        # Parser robuste: cherche tous les nombres
         numeros = []
-        matches = re.findall(r'\d+', raw)
-        for match in matches:
-            idx = int(match) - 1
-            if 0 <= idx < len(tous_les_articles):
+        for m in re.findall(r'\d+', raw):
+            idx = int(m) - 1
+            if 0 <= idx < len(tous):
                 numeros.append(idx)
 
-        if logger:
-            logger.info(f"✅ Articles sélectionnés: {[i+1 for i in numeros[:4]]}")
-        else:
-            print(f"✅ Articles sélectionnés: {[i+1 for i in numeros[:4]]}")
-        return [tous_les_articles[i] for i in numeros[:4]]
+        selected = [tous[i] for i in numeros[:4]]
+        logger.info(f"✅ {len(selected)} articles sélectionnés : {[i+1 for i in numeros[:4]]}")
+        return selected
 
     except Exception as e:
-        if logger:
-            logger.error(f"❌ Erreur Groq: {e}")
-        else:
-            print(f"❌ Erreur Groq: {e}")
-        return []
+        logger.error(f"❌ Sélection LLM échouée : {e} — fallback 4 premiers")
+        return tous[:4]
 
 
-def generate_resume(article, logger=None):
-    """Génère 2-3 phrases de résumé via Groq (sans préambule)"""
-    client = Groq(api_key=GROQ_API_KEY)
-    
+def generate_resume(article, llm, logger):
+    system = "IMPORTANT: Réponds UNIQUEMENT avec 2-3 phrases de résumé. ZÉRO préambule. Juste le texte brut."
+    user   = (
+        f"Titre: {article['title']}\n\n"
+        f"Contenu:\n{article['summary'][:600]}\n\n"
+        "Résume en 2-3 phrases simples et directes."
+    )
     try:
-        if logger:
-            logger.info(f"✍️  Génération résumé pour: {article.get('title')[:80]}")
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0.2,
-            max_tokens=200,  # Augmenté pour éviter les coupures
-            messages=[
-                {
-                    "role": "system",
-                    "content": "IMPORTANT: Réponds UNIQUEMENT avec 2-3 phrases de résumé. ZÉRO préambule, ZÉRO introduction, ZÉRO explication. Juste le texte brut."
-                },
-                {
-                    "role": "user",
-                    "content": f"""Titre: {article['title']}
+        logger.info(f"✍️  Résumé : {str(article.get('title',''))[:70]}")
+        raw = llm.complete(system, user, max_tokens=200, label="résumé")
 
-Contenu:
-{article['summary'][:600]}
-
-Résume en 2-3 phrases simples et directes."""
-                }
-            ]
-        )
-        
-        raw = response.choices[0].message.content.strip()
-        
-        # Nettoyer les réponses parasites communes
-        phrases_a_enlever = [
-            r"^Voici.*?:\s*",
-            r"^Résumé.*?:\s*",
-            r"^En résumé.*?:\s*",
-            r"^Article.*?:\s*",
-            r"^Ce.*?parle de.*?:\s*",
-            r"^\*\*[^*]+\*\*\s*",  # Texte en bold markdown
-        ]
-        
-        for pattern in phrases_a_enlever:
+        for pattern in [r"^Voici.*?:\s*", r"^Résumé.*?:\s*",
+                        r"^En résumé.*?:\s*", r"^\*\*[^*]+\*\*\s*"]:
             raw = re.sub(pattern, "", raw, flags=re.IGNORECASE)
-        
-        # Enlever les tirets ou points d'énumération au début
         raw = re.sub(r"^[-•*]\s*", "", raw)
-        
         return raw.strip()
-    
+
     except Exception as e:
-        if logger:
-            logger.error(f"⚠️  Erreur résumé: {e}")
-        else:
-            print(f"⚠️  Erreur résumé: {e}")
-        # Fallback : premiers 150 caractères du contenu original
-        return (article['summary'][:150] + "...").replace("<br>", " ").replace("<p>", "").replace("</p>", "")
+        logger.error(f"⚠️  Résumé LLM échoué : {e} — fallback texte brut")
+        return (article.get('summary', '')[:150] + "...") \
+               .replace("<br>", " ").replace("<p>", "").replace("</p>", "")
 
 
-def send_email(resultats, sender=None, password=None, recipients=None, logger=None):
-    """Envoie l'email en itérant sur chaque destinataire avec un délai optionnel.
-
-    - `recipients` attend une liste d'adresses.
-    - `delay_between` en secondes entre chaque envoi individuel.
-    - `logger` doit implémenter `info()` et `error()`.
-    """
-    if logger is None:
-        logger = SimpleLogger()
-
+# ==========================================
+# ENVOI EMAIL
+# ==========================================
+def send_email(resultats, sender, password, recipients, llm, logger):
     if not resultats:
         logger.info("⚠️  Pas d'articles à envoyer")
         return
 
-    if sender is None or password is None or recipients is None:
-        logger.error("❌ Paramètres d'email manquants")
-        return
+    clean_pass = password.replace(" ", "") if password else ""
 
-    # Construire le HTML commun
-    if logger:
-        logger.info(f"🧩 Construction du HTML pour {len(resultats)} articles")
-    html = "<html><body><h2>📰 Articles essentiels du jour</h2><hr>"
+    logger.info(f"🧩 Construction HTML pour {len(resultats)} articles")
+    html  = "<html><body style='font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'>"
+    html += "<h2 style='color:#1a1a2e;'>📰 Veille Économie &amp; Gestion</h2><hr>"
+
     for i, article in enumerate(resultats, 1):
-        resume = generate_resume(article, logger=logger)
-        html += f"""
-        <p>
-            <strong>[{i}] {article['title']}</strong><br>
-            <small style=\"color: #666;\">Source: {article['source']}</small><br>
-            <p style=\"margin: 10px 0; line-height: 1.5;\">{resume}</p>
-            <a href=\"{article['link']}\" style=\"color: #0066cc; text-decoration: none;\">→ Lire l'article complet</a>
-        </p>
-        <hr>
-        """
-    html += "</body></html>"
+        resume = generate_resume(article, llm, logger)
+        title  = article['title'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        html  += f"""
+        <div style='margin:16px 0;padding:16px;border-left:3px solid #0066cc;background:#f9f9f9;'>
+            <strong>[{i}] {title}</strong><br>
+            <small style='color:#666;'>Source : {article['source']}</small><br>
+            <p style='margin:10px 0;line-height:1.6;'>{resume}</p>
+            <a href='{article['link']}' style='color:#0066cc;'>→ Lire l'article complet</a>
+        </div>"""
 
-    # Envoi individualisé
-    if logger:
-        logger.info(f"🔐 Expéditeur: {sender[:3]}*** (mot de passe {'ok' if password else 'vide'}) | Destinataires: {recipients}")
+    html += "<hr><p style='color:#999;font-size:12px;'>Envoyé automatiquement par Agent Mail</p></body></html>"
+
+    logger.info(f"🔐 Expéditeur : {sender[:4]}*** | {len(recipients)} destinataire(s) : {recipients}")
+
     for idx, dest in enumerate(recipients, 1):
-        msg = MIMEMultipart("alternative")
+        msg            = MIMEMultipart("alternative")
         msg["Subject"] = "📰 Veille académique - Économie & Gestion"
-        msg["From"] = sender
-        msg["To"] = dest
+        msg["From"]    = sender
+        msg["To"]      = dest
         msg.attach(MIMEText(html, "html"))
 
         try:
-            if logger:
-                logger.info(f"🔌 Tentative connexion SMTP pour {dest} ({idx}/{len(recipients)})")
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
-                server.login(sender, password)
-                if logger:
-                    logger.info("🔑 Authentification SMTP réussie")
+            logger.info(f"🔌 Connexion SMTP pour {dest} ({idx}/{len(recipients)})")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+                server.login(sender, clean_pass)
+                logger.info("🔑 Authentification SMTP réussie")
                 server.sendmail(sender, [dest], msg.as_string())
-                logger.info(f"✉️  Email envoyé à {dest} ({idx}/{len(recipients)})")
+                logger.info(f"✉️  Email envoyé à {dest}")
+        except smtplib.SMTPAuthenticationError:
+            logger.error(
+                f"❌ Authentification Gmail refusée pour {sender}.\n"
+                "   → Vérifiez que la validation en 2 étapes est activée\n"
+                "   → Utilisez un mot de passe d'application (16 chars) et non votre mot de passe habituel"
+            )
+            sys.exit(1)
         except Exception as e:
-            logger.error(f"❌ Erreur email pour {dest}: {e}")
+            logger.error(f"❌ Erreur SMTP pour {dest}: {e}")
 
 
-# --- Main ---
-def run_watch(sender, password, recipients_csv, groq_api_key=None, newsapi_key=None, keywords=None, logger=None):
-    """Point d'entrée utilisable depuis une interface.
-
-    - `recipients_csv`: chaîne avec adresses séparées par des virgules.
-    - `delay_between`: secondes entre chaque envoi individuel.
-    - `logger`: objet optionnel pour collecter logs.
-    """
+# ==========================================
+# POINT D'ENTRÉE PRINCIPAL
+# ==========================================
+def run_watch(sender=None, password=None, recipients_csv=None,
+              gemini_api_key=None, groq_api_key=None,
+              newsapi_key=None, keywords=None, logger=None):
     if logger is None:
         logger = SimpleLogger()
 
-    # Mettre à jour les variables globales utilisées par les fonctions existantes
-    global EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE, DESTINATAIRES, GROQ_API_KEY, NEWSAPI_KEY, MOTS_CLES
-    EMAIL_EXPEDITEUR = sender or EMAIL_EXPEDITEUR
-    EMAIL_MOT_DE_PASSE = password or EMAIL_MOT_DE_PASSE
-    DESTINATAIRES = [e.strip() for e in recipients_csv.split(",") if e.strip()]
-    if groq_api_key:
-        GROQ_API_KEY = groq_api_key
-    if newsapi_key:
-        NEWSAPI_KEY = newsapi_key
-    if keywords:
-        MOTS_CLES = keywords
+    global EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE, DESTINATAIRES
+    global GEMINI_API_KEY, GROQ_API_KEY, NEWSAPI_KEY, MOTS_CLES
 
-    logger.info("🚀 Démarrage de la veille (depuis interface)")
-    try:
-        articles_par_sujet = fetch_articles(logger=logger)
-    except Exception as e:
-        logger.error(f"❌ Erreur récupération articles: {e}")
-        return
+    if sender:         EMAIL_EXPEDITEUR   = sender
+    if password:       EMAIL_MOT_DE_PASSE = password
+    if recipients_csv:
+        DESTINATAIRES = [e.strip() for e in recipients_csv.split(",") if e.strip()]
+    if gemini_api_key: GEMINI_API_KEY = gemini_api_key
+    if groq_api_key:   GROQ_API_KEY   = groq_api_key
+    if newsapi_key:    NEWSAPI_KEY     = newsapi_key
+    if keywords:       MOTS_CLES       = keywords
 
-    if not articles_par_sujet:
-        logger.error("❌ Aucun flux accessible")
-        return
+    # Vérifications obligatoires
+    if not EMAIL_EXPEDITEUR:
+        logger.error("❌ EMAIL_EXPEDITEUR manquant"); sys.exit(1)
+    if not EMAIL_MOT_DE_PASSE:
+        logger.error("❌ EMAIL_MOT_DE_PASSE manquant"); sys.exit(1)
+    if not DESTINATAIRES:
+        logger.error("❌ Aucun destinataire configuré"); sys.exit(1)
+    if not GEMINI_API_KEY and not GROQ_API_KEY:
+        logger.error("❌ Aucune clé LLM (GEMINI_API_KEY et GROQ_API_KEY toutes les deux manquantes)"); sys.exit(1)
 
-    try:
-        resultats = summarize_with_groq(articles_par_sujet, logger=logger)
-    except Exception as e:
-        logger.error(f"❌ Erreur pendant le résumé Groq: {e}")
-        return
+    logger.info("🚀 Démarrage de la veille")
+    logger.info(f"📧 Expéditeur    : {EMAIL_EXPEDITEUR[:4]}***")
+    logger.info(f"👥 Destinataires : {DESTINATAIRES}")
+    logger.info(f"🤖 Gemini key    : {'✓' if GEMINI_API_KEY else '✗'}")
+    logger.info(f"🤖 Groq key      : {'✓ (fallback)' if GROQ_API_KEY else '✗'}")
+    logger.info(f"📰 NewsAPI key   : {'✓' if NEWSAPI_KEY else '✗ (RSS fallback)'}")
+
+    # Créer le client LLM unifié
+    llm = LLMClient(
+        gemini_key=GEMINI_API_KEY,
+        groq_key=GROQ_API_KEY,
+        logger=logger
+    )
+
+    articles_par_sujet = fetch_articles(logger)
+    resultats          = select_articles(articles_par_sujet, llm, logger)
 
     if resultats:
-        try:
-            send_email(resultats, sender=EMAIL_EXPEDITEUR, password=EMAIL_MOT_DE_PASSE, recipients=DESTINATAIRES, logger=logger)
-        except Exception as e:
-            logger.error(f"❌ Erreur lors de l'envoi des emails: {e}")
+        send_email(
+            resultats,
+            sender=EMAIL_EXPEDITEUR,
+            password=EMAIL_MOT_DE_PASSE,
+            recipients=DESTINATAIRES,
+            llm=llm,
+            logger=logger
+        )
+        logger.info("✅ Veille terminée avec succès")
     else:
-        logger.info("⚠️  Groq n'a rien sélectionné")
+        logger.error("⚠️  Aucun article sélectionné — email non envoyé")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    # Comportement historique quand on lance le script directement
     logger = SimpleLogger()
-    run_watch(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE, ",".join(DESTINATAIRES), groq_api_key=GROQ_API_KEY, newsapi_key=NEWSAPI_KEY, logger=logger)
+    run_watch(logger=logger)
