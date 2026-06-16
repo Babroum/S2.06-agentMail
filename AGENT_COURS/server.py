@@ -4,13 +4,17 @@ import json
 import time
 import pickle
 import threading
-import tempfile
+import socket  
+import tempfile  # Pour la gestion des fichiers temporaires hors de VS Code
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+import google.auth.transport.requests  
+import httplib2  
+import google_auth_httplib2  # Ajout de la bibliothèque de transport moderne de Google
 from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
@@ -24,11 +28,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =========================================================================
-# ⚙️ CONFIGURATION DE L'API FLASK & DE LA TEMPORISATION
+# ⚙️ CONFIGURATION RÉSEAU ET TIMEOUT POUR LE PARTAGE DE CONNEXION
 # =========================================================================
-app = Flask(__name__)
+socket.setdefaulttimeout(60)
 
-# CORRECTION CRITIQUE DU CORS : Autorise explicitement toutes les méthodes pour éviter l'erreur OPTIONS 404
+app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type"]}})
 
 CHOIX_INTERVALLE = "24h"               
@@ -45,16 +49,31 @@ CONVERTISSEUR_TEMPS = {
 }
 
 # =========================================================================
-# 1. CONFIGURATION ET CONNEXION AUX APIS (GROQ & DRIVE)
+# 🔐 1. CHARGEMENT DES SECRETS (.ENV) ET CONFIGURATION GOOGLE / GROQ
 # =========================================================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
 ID_DOSSIER_DRIVE = os.environ.get("ID_DOSSIER_DRIVE") 
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 
 client = Groq(api_key=GROQ_API_KEY)
 SCOPES = ['https://www.googleapis.com/auth/drive']
 creds = None
 
 print("🚀 Démarrage de l'agent de veille juridique (Version Rigueur & Design)...")
+
+# Re-constitution de la structure JSON de Google directement en mémoire
+GOOGLE_CONFIG = {
+    "web": {
+        "client_id": GOOGLE_CLIENT_ID,
+        "project_id": "agent-cours-project",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uris": ["http://localhost:3000", "http://127.0.0.1:3000"]
+    }
+}
 
 if os.path.exists('token.pickle'):
     with open('token.pickle', 'rb') as token:
@@ -63,26 +82,30 @@ if os.path.exists('token.pickle'):
 if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
         try:
-            creds.refresh(Request())
+            requete_transport = google.auth.transport.requests.Request()
+            creds.refresh(requete_transport)
         except Exception:
             if os.path.exists('token.pickle'):
                 os.remove('token.pickle')
-            flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+            flow = InstalledAppFlow.from_client_config(GOOGLE_CONFIG, SCOPES)
             creds = flow.run_local_server(port=0)
     else:
-        if not os.path.exists('client_secret.json'):
-            print("❌ Erreur : Le fichier 'client_secret.json' est introuvable.")
+        if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+            print("❌ Erreur : Les variables GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET sont manquantes dans le fichier .env")
             exit(1)
-        flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+        flow = InstalledAppFlow.from_client_config(GOOGLE_CONFIG, SCOPES)
         creds = flow.run_local_server(port=0)
         
     with open('token.pickle', 'wb') as token:
         pickle.dump(creds, token)
 
-drive_service = build('drive', 'v3', credentials=creds)
+# Transport sécurisé moderne avec injection du timeout de 60s
+http_custom = httplib2.Http(timeout=60)
+http_autorise = google_auth_httplib2.AuthorizedHttp(creds, http=http_custom)
+drive_service = build('drive', 'v3', http=http_autorise)
 
 # =========================================================================
-# 2. ACTIONS MÉTIERS (SCAN, LECTURE PDF, GENERATION PDF STYLISÉ)
+# 📄 2. ACTIONS MÉTIERS (SCAN, LECTURE PDF, GENERATION PDF STYLISÉ)
 # =========================================================================
 def scanner_dossier_drive():
     query = f"'{ID_DOSSIER_DRIVE}' in parents and mimeType='application/pdf' and trashed=false"
@@ -112,10 +135,9 @@ def lire_contenu_pdf(file_id):
 
 def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
     try:
-        # 🛠️ MODIFICATION : On crée le fichier dans le dossier temporaire du système
+        # Génération du fichier temporaire dans le cache du système (invisible dans VS Code)
         chemin_temporaire = os.path.join(tempfile.gettempdir(), nom_fichier)
         
-        # On utilise 'chemin_temporaire' pour la création du document
         doc = SimpleDocTemplate(chemin_temporaire, pagesize=letter, rightMargin=45, leftMargin=45, topMargin=45, bottomMargin=45)
         styles = getSampleStyleSheet()
         
@@ -181,11 +203,9 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
         time.sleep(1)  
         
         metadata_fichier = {'name': nom_fichier, 'parents': [ID_DOSSIER_DRIVE]}
-        # 🛠️ MODIFICATION : On téléverse le fichier depuis le chemin temporaire
         media = MediaFileUpload(chemin_temporaire, mimetype='application/pdf', resumable=True)
         drive_service.files().create(body=metadata_fichier, media_body=media, fields='id').execute()
         
-        # 🛠️ MODIFICATION : Nettoyage du fichier temporaire
         try: os.remove(chemin_temporaire)
         except: pass
             
@@ -195,7 +215,7 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
         return f"Erreur : {str(e)}"
 
 # =========================================================================
-# 🎛️ 3. CORE LOGIC : FONCTION DE VEILLE & BOUCLE TEMPORELLE
+# 🎛️ 3. BOUCLE TEMPORELLE DE VEILLE
 # =========================================================================
 def executer_session_de_veille():
     print("\n[ROUTINE] 🔍 Lancement de l'analyse des cours...")
@@ -214,8 +234,8 @@ def executer_session_de_veille():
         
         prompt_analyse = (
             f"Tu es un éminent professeur de droit français. Analyse le cours suivant :\n\n"
-            f"--- DÉBUT DU COURS ---\n{texte_cours}\n--- FIN DU COURS ---\n\n"
-            "Mission : Réécris ce texte pour le rendre conforme en 2026. Sers-toi de sources officielles."
+            f"{texte_cours}\n\n"
+            "Mission : Réécris ce texte pour le rendre conforme en 2026."
         )
         
         try:
@@ -229,86 +249,49 @@ def executer_session_de_veille():
             if texte_mis_a_jour and len(texte_mis_a_jour) > 100:
                 resultat = modifier_et_remplacer_pdf(nom_fichier, texte_mis_a_jour, id_fichier)
                 print(f"   ↳ {resultat}")
-            else:
-                print("   ⚠️ Alerte : Contenu renvoyé par Groq vide.")
-            time.sleep(4)  
+            time.sleep(2)  
         except Exception as e:
-            if "429" in str(e):
-                print("\n⏳ Pause forcée de 30 secondes (Rate Limit)...")
-                time.sleep(30)
-            else:
-                print(f"🚨 Erreur fichier : {e}")
-                time.sleep(5)
+            print(f"🚨 Erreur fichier : {e}")
     print("\n🎉 Session de veille achevée.")
 
 def boucle_temporelle_de_veille():
     global DUREE_VEILLE_SECONDES, CHOIX_INTERVALLE, VEILLE_ACTIVE
-    print("[SYSTEME] Gestionnaire de tâches d'arrière-plan démarré.")
-    
     while VEILLE_ACTIVE:
         if CHOIX_INTERVALLE == "manual":
             time.sleep(2)
             continue
-            
-        temps_a_attendre = DUREE_VEILLE_SECONDES
-        print(f"[SYSTEME] Attente planifiée : Prochain check dans {CHOIX_INTERVALLE}.")
-        
-        for _ in range(int(temps_a_attendre)):
-            if not VEILLE_ACTIVE or CHOIX_INTERVALLE == "manual" or temps_a_attendre != DUREE_VEILLE_SECONDES:
-                break
-            time.sleep(1)
-            
-        if temps_a_attendre != DUREE_VEILLE_SECONDES or CHOIX_INTERVALLE == "manual":
-            continue
-
-        try: executer_session_de_veille()
-        except Exception as e: print(f" Erreur boucle : {e}")
+        time.sleep(DUREE_VEILLE_SECONDES)
+        if CHOIX_INTERVALLE != "manual":
+            try: executer_session_de_veille()
+            except: pass
 
 # =========================================================================
-# 🌐 4. ROUTES API (SYNCHRONISATION ET ANALYSE MANUELLE)
+# 🌐 4. ROUTES API FLASK
 # =========================================================================
 @app.route('/api/schedule', methods=['POST', 'OPTIONS'])
 def update_schedule():
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
-        
     global CHOIX_INTERVALLE, DUREE_VEILLE_SECONDES
     data = request.get_json()
-    if not data or 'interval' not in data:
-        return jsonify({"status": "error", "message": "Données incorrectes"}), 400
-        
     laps_de_temps = data['interval']
     if laps_de_temps in CONVERTISSEUR_TEMPS:
         CHOIX_INTERVALLE = laps_de_temps
         DUREE_VEILLE_SECONDES = CONVERTISSEUR_TEMPS[laps_de_temps]
         print(f"\n[API] Nouvelle fréquence reçue : {CHOIX_INTERVALLE}")
-        return jsonify({"status": "success", "message": "Fréquence synchronisée"}), 200
-    return jsonify({"status": "error", "message": "Option inconnue"}), 400
+        return jsonify({"status": "success"}), 200
+    return jsonify({"status": "error"}), 400
 
 @app.route('/api/analyze', methods=['POST', 'OPTIONS'])
 def trigger_manual_analyze():
-    """Intercepte le pré-flight OPTIONS et traite l'analyse forcée"""
     if request.method == 'OPTIONS':
         return jsonify({"status": "ok"}), 200
-        
     print("\n[API] ⚡ Déclenchement forcé de l'analyse IA via l'interface web.")
     try:
         executer_session_de_veille()
-        return jsonify({"status": "success", "message": "Analyse achevée !"}), 200
+        return jsonify({"status": "success"}), 200
     except Exception as e:
-        print(f"🚨 Erreur lors de l'analyse : {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    data = request.get_json()
-    messages = data.get('messages', [])
-    derniere_question = messages[-1]['content'] if messages else ""
-    try:
-        chat_completion = client.chat.completions.create(messages=[{"role": "user", "content": derniere_question}], model="llama-3.1-8b-instant")
-        reponse_ia = chat_completion.choices[0].message.content
-    except Exception as e: reponse_ia = f"Erreur : {e}"
-    return jsonify({"choices": [{"message": {"role": "assistant", "content": reponse_ia}}]}), 200
 
 if __name__ == '__main__':
     thread_veille = threading.Thread(target=boucle_temporelle_de_veille)
