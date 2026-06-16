@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Configuration de l'Agent de Veille</title>
+    <link rel="stylesheet" href="agent.css"/>
+</head>
+<body>
+    <div class="agent-panel">
+        <header class="panel-header">
+            <div class="status-indicator">
+                <span class="pulse-dot"></span>
+                <span id="statusText">Agent Actif</span>
+            </div>
+            <h1>Contrôle de Veille Continue</h1>
+            <p>Automatisation de la mise à niveau des cours par IA & Google Drive</p>
+        </header>
+
+        <main class="panel-body">
+            <section class="config-section">
+                <h2>⏱️ Planification de la routine</h2>
+                <p class="section-desc">Définis l'intervalle de temps entre chaque scan automatique de ton dossier Google Drive.</p>
+                
+                <div class="control-group">
+                    <label for="scheduleSelect">Fréquence d'analyse :</label>
+                    <select id="scheduleSelect" class="schedule-select">
+                        <option value="15m">Toutes les 15 minutes</option>
+                        <option value="1h">Toutes les heures</option>
+                        <option value="12h">Toutes les 12 heures</option>
+                        <option value="24h" selected>Toutes les 24 heures</option>
+                        <option value="7d">Toutes les semaines</option>
+                        <option value="manual">⚠️ Mode manuel (Gestion personnalisée)</option>
+                    </select>
+                </div>
+
+                <button id="saveScheduleBtn" class="save-btn">Enregistrer la fréquence</button>
+            </section>
+
+            <section class="config-section">
+                <h2>⚡ Actions Immédiates</h2>
+                <p class="section-desc">Déclenche instantanément un scan et un audit IA sans attendre la prochaine routine automatique (Disponible uniquement en Mode Manuel).</p>
+                
+                <div class="action-wrapper">
+                    <button id="newAnalysisBtn" class="new-analysis-btn" disabled>
+                        Nouvelle Analyse
+                    </button>
+                </div>
+            </section>
+        </main>
+
+        <footer class="panel-footer">
+            <p>Connecté au serveur Flask sur <code class="url-badge">http://localhost:3000</code></p>
+        </footer>
+    </div>
+
+    <script src="agent.js"></script>
+</body>
+</html>

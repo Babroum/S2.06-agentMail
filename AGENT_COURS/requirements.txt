@@ -5,3 +5,7 @@ pypdf
 reportlab
 groq
 python-dotenv
+express
+cors
+Flask 
+flask-cors
