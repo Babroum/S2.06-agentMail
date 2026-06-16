@@ -16,18 +16,16 @@ from reportlab.graphics.shapes import Drawing, Rect, String, Line
 from groq import Groq
 from dotenv import load_dotenv
 
+# Chargement automatique des variables du fichier .env
 load_dotenv()
-
 
 
 # =========================================================================
 # 1. CONFIGURATION ET CONNEXION AUX APIS
 # =========================================================================
 
-
-
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # <--- METS TA CLÉ GROQ ICI
-ID_DOSSIER_DRIVE = os.environ.get("ID_DOSSIER_DRIVE") # <--- METS L'ID DU DOSSIER DRIVE ICI
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
+ID_DOSSIER_DRIVE = os.environ.get("ID_DOSSIER_DRIVE") 
 
 # Initialisation du client Groq
 client = Groq(api_key=GROQ_API_KEY)
@@ -98,7 +96,7 @@ def lire_contenu_pdf(file_id):
         
         lecteur_pdf = PdfReader(fh)
         texte_total = ""
-        # Extraction limitée aux 10 premières pages pour s'adaptater au contexte de l'IA
+        # Extraction limitée aux 10 premières pages pour s'adapter au contexte de l'IA
         for page in lecteur_pdf.pages[:10]:
             texte_total += page.extract_text() or ""
         
@@ -190,10 +188,16 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
             # Remplacement des puces Markdown classiques par un caractère spécial plus élégant
             if p_clean.startswith("* "):
                 p_clean = p_clean.replace("* ", "• ", 1)
+                
+            # --- SECTEUR DE BLINDAGE ANTI-BUG : BALISES ORPHELINES ---
+            # Si l'IA ouvre une balise sans la refermer en fin de ligne, Python la ferme de force
+            if p_clean.count("<b>") > p_clean.count("</b>"):
+                p_clean += "</b>"
+            if p_clean.count("<u>") > p_clean.count("</u>"):
+                p_clean += "</u>"
             
             # Détection automatique des rubriques du plan pour appliquer les titres
             if p_clean.startswith("PARTIE") or p_clean.startswith("TITRE") or p_clean.startswith("SECTION") or (p_clean.replace("<b>","").replace("</b>","").isupper() and len(p_clean) < 80):
-                # On s'assure que le titre soit bien propre
                 titre_final = p_clean.replace("<b>", "").replace("</b>", "")
                 histoire.append(Paragraph(f"<b>{titre_final}</b>", style_intertitre))
                 
@@ -202,26 +206,19 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
                 histoire.append(Paragraph(p_clean, style_encadre))
                 
             else:
-                # Texte normal injecté (gérant désormais parfaitement les styles appliqués)
                 histoire.append(Paragraph(p_clean, style_texte))
         
         histoire.append(Spacer(1, 15))
         
         # --- COMPOSANT GRAPHIQUE AUTOMATIQUE : SCHÉMA DE SYNTHÈSE DES INFOS ---
-        # Ajout d'une illustration infographique vectorielle pour rendre le cours visuel
         histoire.append(Paragraph("<b>📊 SCHÉMA DE SYNTHÈSE : Processus d'Actualisation Continue</b>", style_intertitre))
         schema = Drawing(520, 50)
-        # Rectangle 1
         schema.add(Rect(10, 10, 140, 30, fillColor=colors.HexColor("#2B6CB0"), strokeColor=None))
         schema.add(String(80, 20, "1. TEXTE ORIGINAL", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
-        # Flèche directionnelle 1
         schema.add(Line(160, 25, 190, 25, strokeColor=colors.HexColor("#718096"), strokeWidth=2))
-        # Rectangle 2
         schema.add(Rect(200, 10, 140, 30, fillColor=colors.HexColor("#319795"), strokeColor=None))
         schema.add(String(270, 20, "2. VEILLE JURIDIQUE", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
-        # Flèche directionnelle 2
         schema.add(Line(350, 25, 380, 25, strokeColor=colors.HexColor("#718096"), strokeWidth=2))
-        # Rectangle 3
         schema.add(Rect(390, 10, 120, 30, fillColor=colors.HexColor("#D69E2E"), strokeColor=None))
         schema.add(String(450, 20, "3. COURS ENRICHI", textAnchor="middle", fillColor=colors.white, fontSize=9, fontName="Helvetica-Bold"))
         
@@ -229,7 +226,7 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
         
         # Compilation physique du PDF localement sur le disque dur
         doc.build(histoire)
-        time.sleep(2)  # Temporisation nécessaire de validation pour l'explorateur Windows
+        time.sleep(2)  
         
         # 2. Envoi de la nouvelle mouture enrichie sur Google Drive
         print(f"[Outil] Téléversement de la fiche actualisée vers Google Drive...")
@@ -267,7 +264,6 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
 # 3. CONTRÔLEUR CENTRAL ET AUTOMATION DE L'AGENT INDÉPENDANT
 # =========================================================================
 
-# Phase A : Scan du dossier en amont pour prémâcher le travail de l'IA
 fichiers_a_traiter = scanner_dossier_drive()
 
 if not fichiers_a_traiter:
@@ -277,12 +273,10 @@ else:
         id_fichier = f.get('id')
         nom_fichier = f.get('name')
         
-        # Extraction du texte textuel contenu dans le PDF original
         texte_cours = lire_contenu_pdf(id_fichier)
         
         print(f"\n🧠 Audit juridique en cours par l'IA pour : '{nom_fichier}'...")
         
-        # Consignes d'écriture académiques, de sourçage officiel et balisage de style pour ReportLab
         prompt_analyse = (
             f"Tu es un éminent professeur de droit français, doublé d'un juriste d'une rigueur absolue. Analyse le cours suivant :\n\n"
             f"--- DÉBUT DU COURS ---\n{texte_cours}\n--- FIN DU COURS ---\n\n"
@@ -304,7 +298,6 @@ else:
         )
         
         try:
-            # Appel direct en texte brut à Groq (Évite mathématiquement les bugs d'interprétation JSON)
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt_analyse}],
                 model="llama-3.1-8b-instant",
@@ -313,14 +306,13 @@ else:
             
             texte_mis_a_jour = chat_completion.choices[0].message.content
             
-            # Validation de la cohérence de la réponse reçue avant d'altérer les fichiers du Drive
             if texte_mis_a_jour and len(texte_mis_a_jour) > 100:
                 resultat = modifier_et_remplacer_pdf(nom_fichier, texte_mis_a_jour, id_fichier)
                 print(f"   ↳ {resultat}")
             else:
                 print("   ⚠️ Alerte : Contenu renvoyé par Groq vide ou incomplet. Document d'origine préservé.")
                 
-            time.sleep(4)  # Marge d'attente contre le blocage des requêtes par minute (Rate Limit)
+            time.sleep(4)  
             
         except Exception as e:
             msg_erreur = str(e)
@@ -331,4 +323,4 @@ else:
                 print(f"🚨 Erreur lors de la mise à jour du fichier : {e}")
                 time.sleep(5)
 
-    print("\n🎉 Session de veille clôturée avec succès. Tous les fichiers cibles ont été vérifiés.")
+print("\n🎉 Session de veille clôturée avec succès. Tous les fichiers cibles ont été vérifiés.")
