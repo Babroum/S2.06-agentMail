@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const boutonNouvelleAnalyse = document.getElementById('newAnalysisBtn');
     const statusText = document.getElementById('statusText');
 
-    const API_BASE_URL = 'http://localhost:8080/api';
+    const API_BASE_URL = '/api';
 
     // Sécurité : On s'assure que les éléments existent dans le HTML actuel
     if (!selectIntervalle || !boutonNouvelleAnalyse) {

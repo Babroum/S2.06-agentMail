@@ -28,7 +28,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =========================================================================
-# ⚙️ CONFIGURATION RÉSEAU ET TIMEOUT POUR LE PARTAGE DE CONNEXION
+# ⚙️ CONFIGURATION RÉSEAU ET TIMEOUT POUR LE PARTAGE DE 
+# XION
 # =========================================================================
 socket.setdefaulttimeout(60)
 
