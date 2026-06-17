@@ -158,15 +158,24 @@ def modifier_et_remplacer_pdf(nom_fichier, nouveau_contenu_texte, id_original):
         paragraphes = nouveau_contenu_texte.split('\n')
         for p in paragraphes:
             p_strip = p.strip()
-            if not p_strip: continue
+            if not p_strip:
+                histoire.append(Spacer(1, 6))
+                continue
             
-            p_clean = p_strip.replace('& ', '&amp; ')
+            p_clean = p_strip
             est_titre_markdown = False
-            if p_clean.startswith("###"):
+            
+            if p_clean.startswith("## "):
+                p_clean = p_clean.replace("## ", "").strip()
+                est_titre_markdown = True
+            elif p_clean.startswith("# "):
+                p_clean = p_clean.replace("# ", "").strip()
+                est_titre_markdown = True
+            elif p_clean.startswith("### "):
                 p_clean = p_clean.replace("###", "").strip()
                 est_titre_markdown = True
 
-            while "../../" in p_clean:  
+            while "**" in p_clean:  
                 p_clean = p_clean.replace("**", "<b>", 1)
                 p_clean = p_clean.replace("**", "</b>", 1)
                 
@@ -288,6 +297,269 @@ def boucle_temporelle_de_veille():
             except: pass
 
 # =========================================================================
+# 🏠 ROUTE RACINE ET INTERFACE WEB
+# =========================================================================
+@app.route('/', methods=['GET'])
+def index():
+    """Serve the web interface"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Agent de Veille Juridique</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+            .container {
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                padding: 40px;
+                max-width: 600px;
+                width: 100%;
+            }
+            h1 {
+                color: #1a365d;
+                margin-bottom: 10px;
+                font-size: 28px;
+            }
+            .subtitle {
+                color: #718096;
+                margin-bottom: 30px;
+                font-size: 16px;
+            }
+            .control-group {
+                margin-bottom: 25px;
+            }
+            label {
+                display: block;
+                color: #2d3748;
+                font-weight: 600;
+                margin-bottom: 8px;
+                font-size: 14px;
+            }
+            select, button {
+                width: 100%;
+                padding: 12px 16px;
+                border: 2px solid #e2e8f0;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            select {
+                background: white;
+                color: #2d3748;
+            }
+            select:hover {
+                border-color: #667eea;
+            }
+            select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            button {
+                background: white;
+                color: #2d3748;
+                border-color: #cbd5e0;
+                margin-top: 10px;
+            }
+            button:hover:not(:disabled) {
+                background: #f7fafc;
+                border-color: #667eea;
+                color: #667eea;
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .btn-primary {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+            }
+            .btn-primary:hover:not(:disabled) {
+                background: linear-gradient(135deg, #5568d3 0%, #6a3e8a 100%);
+                box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+            }
+            .status-box {
+                background: #f7fafc;
+                border-left: 4px solid #667eea;
+                padding: 16px;
+                border-radius: 8px;
+                margin-top: 20px;
+            }
+            .status-text {
+                color: #2d3748;
+                font-weight: 600;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 Agent de Veille Juridique</h1>
+            <p class="subtitle">Mise à jour intelligente et automatisée de tes cours</p>
+            
+            <div class="control-group">
+                <label for="scheduleSelect">Mode de Veille</label>
+                <select id="scheduleSelect">
+                    <option value="manual">Mode Manuel</option>
+                    <option value="15m">Toutes les 15 minutes</option>
+                    <option value="1h">Toutes les heures</option>
+                    <option value="12h">2 fois par jour</option>
+                    <option value="24h" selected>Une fois par jour</option>
+                    <option value="7d">Une fois par semaine</option>
+                </select>
+            </div>
+            
+            <button id="saveScheduleBtn">💾 Enregistrer la fréquence</button>
+            <button id="newAnalysisBtn" class="btn-primary">⚡ Nouvelle Analyse</button>
+            
+            <div class="status-box">
+                <div id="statusText" class="status-text">Initialisation...</div>
+            </div>
+        </div>
+        
+        <script>
+            // =========================================================================
+            // SCRIPT DE SYNCHRONISATION ET CONTRÔLE DE L'AGENT DE VEILLE
+            // =========================================================================
+
+            document.addEventListener('DOMContentLoaded', () => {
+                // Récupération des composants HTML via leurs ID uniques
+                const selectIntervalle = document.getElementById('scheduleSelect');
+                const boutonEnregistrer = document.getElementById('saveScheduleBtn');
+                const boutonNouvelleAnalyse = document.getElementById('newAnalysisBtn');
+                const statusText = document.getElementById('statusText');
+
+                const API_BASE_URL = '/api';
+
+                // Sécurité : On s'assure que les éléments existent dans le HTML actuel
+                if (!selectIntervalle || !boutonNouvelleAnalyse) {
+                    console.error("❌ Erreur : Les éléments 'scheduleSelect' ou 'newAnalysisBtn' sont introuvables dans le HTML.");
+                    return;
+                }
+
+                /**
+                 * 1. GESTION DYNAMIQUE DU BRIDAGE DU BOUTON "NOUVELLE ANALYSE"
+                 */
+                function synchroniserEtatBoutonAnalyse() {
+                    if (selectIntervalle.value === 'manual') {
+                        // Mode Manuel : On libère le bouton
+                        boutonNouvelleAnalyse.disabled = false;
+                        if (statusText) {
+                            statusText.innerText = "Mode Manuel Activé";
+                            statusText.parentElement.style.borderColor = "rgba(214, 158, 46, 0.4)";
+                            statusText.parentElement.style.color = "#D69E2E";
+                        }
+                    } else {
+                        // Mode Auto : Bouton bridé
+                        boutonNouvelleAnalyse.disabled = true;
+                        if (statusText) {
+                            statusText.innerText = "Agent Actif (Auto)";
+                            statusText.parentElement.style.borderColor = "rgba(135, 206, 235, 0.3)";
+                            statusText.parentElement.style.color = "#87CEEB";
+                        }
+                    }
+                }
+
+                // Écouter les modifications sur la liste déroulante pour ajuster le bridage en direct
+                selectIntervalle.addEventListener('change', synchroniserEtatBoutonAnalyse);
+                
+                // Premier contrôle au chargement initial de la page pour appliquer l'état par défaut
+                synchroniserEtatBoutonAnalyse();
+
+
+                /**
+                 * 2. ENREGISTRER LA FRÉQUENCE DE VEILLE AUTOMATIQUE
+                 */
+                if (boutonEnregistrer) {
+                    boutonEnregistrer.addEventListener('click', async () => {
+                        const optionChoisie = selectIntervalle.value;
+                        
+                        boutonEnregistrer.disabled = true;
+                        boutonEnregistrer.innerText = "🔄 Synchronisation...";
+
+                        try {
+                            const reponse = await fetch(`${API_BASE_URL}/schedule`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ interval: optionChoisie })
+                            });
+
+                            if (reponse.ok) {
+                                alert(`✅ Mode mis à jour sur le serveur : ${optionChoisie}.`);
+                            } else {
+                                const errData = await reponse.json();
+                                alert(`❌ Erreur : ${errData.message}`);
+                            }
+                        } catch (error) {
+                            console.error("Erreur d'envoi du schedule :", error);
+                            alert("❌ Erreur : Le serveur Flask (Port 8080) est déconnecté.");
+                        } finally {
+                            boutonEnregistrer.disabled = false;
+                            boutonEnregistrer.innerText = "Enregistrer la fréquence";
+                        }
+                    });
+                }
+
+
+                /**
+                 * 3. EXÉCUTER UNE ANALYSE MANUELLE IMMÉDIATE
+                 */
+                boutonNouvelleAnalyse.addEventListener('click', async () => {
+                    if (boutonNouvelleAnalyse.disabled) return;
+
+                    // Mutation visuelle d'attente pendant le traitement de l'IA
+                    const libelleDorigine = boutonNouvelleAnalyse.innerHTML;
+                    boutonNouvelleAnalyse.disabled = true;
+                    boutonNouvelleAnalyse.innerHTML = "🔄 Audit IA & Drive en cours...";
+
+                    try {
+                        const reponse = await fetch(`${API_BASE_URL}/analyze`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+
+                        if (reponse.ok) {
+                            alert("✅ Succès ! L'analyse manuelle est terminée et tes fichiers ont été mis à jour sur Google Drive.");
+                        } else {
+                            const errData = await reponse.json();
+                            alert(`❌ Échec de la session : ${errData.message}`);
+                        }
+                    } catch (error) {
+                        console.error("Erreur de traitement manuel :", error);
+                        alert("❌ Erreur de liaison réseau : Le serveur Flask est injoignable.");
+                    } finally {
+                        boutonNouvelleAnalyse.innerHTML = libelleDorigine;
+                        synchroniserEtatBoutonAnalyse();
+                    }
+                });
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return html_content, 200
+
+# =========================================================================
 # 🌐 4. ROUTES API FLASK
 # =========================================================================
 @app.route('/api/schedule', methods=['POST', 'OPTIONS'])
@@ -320,5 +592,6 @@ if __name__ == '__main__':
     thread_veille.daemon = True
     thread_veille.start()
     
-    print("Serveur Flask disponible sur http://localhost:8080")
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    port = int(os.environ.get('PORT', 8080))
+    print(f"Serveur Flask disponible sur http://0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
