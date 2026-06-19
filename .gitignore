@@ -1,0 +1,10 @@
+.env
+my_env/
+__pycache__/
+*.pyc
+
+*.csv
+contacts_cache.json
+
+.DS_Store
+Thumbs.db
